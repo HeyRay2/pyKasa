@@ -2,10 +2,7 @@
 #from xmlrpc.client import Boolean
 from datetime import datetime  # datetime library
 from typing import List
-
 import kasa.iot
-#import kasa  # kasa library
-#import kasa.iot # kasa IOT library -- for devices that support non-authenticated access
 from kasa.iot import iotdevice
 import asyncio  # async io
 import platform  # platform
@@ -23,7 +20,7 @@ if platform.system() == 'Windows':
 command_timeout_default = 3
 
 # List of valid device command options
-command_options = ['on', 'off', 'toggle', 'status']
+command_options = ['on', 'off', 'status']
 
 # CMD Line Parser
 parser = argparse.ArgumentParser(description='Control a TP-Link Kasa Smart Device.')
@@ -65,7 +62,7 @@ class TpLinkKasaDevice:
 
     def __str__(self):
         return 'IP: {} | Name: {} | Device Type: {}'.format(
-                self.ip, self.type, self.name)
+                self.ip, self.name, self.type)
 
     @staticmethod
     async def connect(ip: str, logger: logging.Logger = None):
@@ -79,8 +76,6 @@ class TpLinkKasaDevice:
             kasa_device.children = iot_device.children
             kasa_device._logger = logger
 
-            # logger.info('IP: {} | Name: {} | Device Type: {}'.format(
-            #     kasa_device.ip, kasa_device.type, kasa_device.name))
             logger.info(kasa_device)
             return kasa_device
         else:
@@ -91,7 +86,6 @@ class TpLinkKasaDevice:
             children = []
 
         self._logger.debug("Getting device: {}".format(self.iot_device))
-        #current_device = iotdevice.Device(self.iot_device)
         current_device = self.iot_device
 
         self._logger.debug("Checking device type...")
@@ -105,26 +99,33 @@ class TpLinkKasaDevice:
                 try:
                     current_child = current_device.children[child]
 
+                    state_change_string = "=> is already ON"
+
                     if current_child.is_off:
                         await current_child.turn_on()
-                        self._logger.info("Device: {} | Child: {} | State: {}".format(
-                            self.name, current_device.alias, "ON" if current_child.is_on else "OFF"
-                        ))
+
+                        state_change_string = "=> changing state to ON"
+
+                    self._logger.info("Device: {} | Child: {} | State: {} {}".format(
+                            self.name, current_child.alias, "ON" if current_child.is_on else "OFF", state_change_string))
                 except Exception as e:
                     self._logger.error("Error accessing child device: {}".format(e))
         else:
+            state_change_string = "=> is already ON"
+
             if current_device.is_off:
                 await current_device.turn_on()
-                self._logger.info("Device: {} | State: {}".format(
-                    self.name, "ON" if current_device.is_on else "OFF"
-                ))
+
+                state_change_string = "=> changing state to ON"
+
+            self._logger.info("Device: {} | State: {} {}".format(
+                    self.name, "ON" if current_device.is_on else "OFF", state_change_string))
 
     async def turn_off(self, children=None):
         if children is None:
             children = []
 
         self._logger.debug("Getting device: {}".format(self.iot_device))
-        #current_device = iotdevice.Device(self.iot_device)
         current_device = self.iot_device
 
         self._logger.debug("Checking device type...")
@@ -138,26 +139,33 @@ class TpLinkKasaDevice:
                 try:
                     current_child = current_device.children[child]
 
+                    state_change_string = "=> is already OFF"
+
                     if current_child.is_on:
                         await current_child.turn_off()
-                        self._logger.info("Device: {} | Child: {} | State: {}".format(
-                            self.name, current_child.alias, "OFF" if current_child.is_off else "ON"
-                        ))
+
+                        state_change_string = "=> changed state to OFF"
+
+                    self._logger.info("Device: {} | Child: {} | State: {} {}".format(
+                        self.name, current_child.alias, "ON" if current_child.is_on else "OFF", state_change_string))
                 except Exception as e:
                     self._logger.error("Error accessing child device: {}".format(e))
         else:
+            state_change_string = "=> is already OFF"
+
             if current_device.is_on:
                 await current_device.turn_off()
-                self._logger.info("Device: {} | State: {}".format(
-                    self.name, "OFF" if current_device.is_off else "ON"
-                ))
+
+                state_change_string = "=> changed state to OFF"
+
+            self._logger.info("Device: {} | State: {} {}".format(
+                self.name, "ON" if current_device.is_on else "OFF", state_change_string))
 
     async def status(self, children=None):
         if children is None:
             children = []
 
         self._logger.debug("Getting device: {}".format(self.iot_device))
-        # current_device = iotdevice.Device(self.iot_device)
         current_device = self.iot_device
 
         self._logger.debug("Checking device type...")
@@ -182,205 +190,63 @@ class TpLinkKasaDevice:
             ))
 
 
-# Functions
-async def runCommand_OLD(device_ip, command):
-    # Access the smart device
-    device = await iotdevice.Device.connect(host=device_ip)
-
-    # Check if a device was found
-    if device:
-        # Show device details
-        logger.info('IP: {} | Device Type: {} | Name: {}'.format(device_ip, device.device_type, device.alias))
-
-        # Verbose Details
-        logger.debug('Detailed info:')
-        logger.debug(json.dumps(device.hw_info, indent=2))
-
-        # Set the initial target device to run a command on
-        target_device = device
-        target_device_name = device.alias
-
-        # Create a dictionary to store all command target devices
-        logger.debug('Creating target device dictionary')
-        target_devices = {}
-
-        # Add initial target device to command target dictionary
-        logger.debug('Creating first target device entry from parent device')
-        target_devices[0] = {target_device_name: target_device}
-
-        # Check if device has children
-        if device.device_type.Strip or device.device_type.StripSocket:
-            logger.debug('Target device has child devices')
-            logger.debug('Number of child devices: {}'.format(len(device.children)))
-            logger.debug('Children: {}'.format(device.children))
-
-            # Check if a child device was specified, and that is it a valid child
-            # if ((args.child >= 0) and (len(device.children) > args.child)):
-            if (args.child >= 0) and (len(device.children) > args.child):
-                # If so, get the child index
-                child_index = args.child
-                logger.info('Child device -- Index: {} | Name: {}'.format(child_index,
-                                                                          device.children[child_index].alias))
-
-                # Set the target device
-                target_device = device.children[child_index]
-                target_device_name = '{} => {}'.format(device.alias, target_device.alias)
-
-                logger.info('Setting child device {} as only target device'.format(child_index))
-                target_devices[0] = {target_device_name: target_device}
-            else:
-                # Target all children
-                logger.info('No child device specified. Targeting all child devices.')
-
-                i = 0  # iterator for children
-                for child in device.children:
-                    target_device = child
-                    target_device_name = '{} => {}'.format(device.alias, target_device.alias)
-
-                    logger.info(
-                        'Added target -- Device: {} | Child Index: {}'.format(target_device_name, i))
-                    target_devices[i] = {target_device_name: target_device}
-                    i = i + 1
-
-        # Run command on target device(s)
-        logger.info('Command: {} | Number of Devices: {}'.format(command, len(target_devices)))
-
-        for index, target in target_devices.items():
-            # Check for valid command
-            for target_name, target_item in target.items():
-                logger.info('Performing "{}" action for Device: {}'.format(command, target_name))
-
-                # Perform command action
-                if command == "on":
-                    await turnOnDevice(target_item, target_name)
-                elif command == "off":
-                    await turnOffDevice(target_item, target_name)
-                elif command == "toggle":
-                    await toggleDevice(target_item, target_name)
-                elif command == "status":
-                    await showDeviceState(target_item, target_name)
-                else:
-                    logger.critical('Unknown or unsupported command: {}'.format(command))
-
-    else:
-        # No device found
-        logger.critical('No smart device found at {}'.format(args.ip))
-        exit()
-
-
-async def runCommand(device_ip, command, children=None):
+# Methods
+async def run_command(device_ip, command, children=None):
     if children is None:
         children = []
 
     # Access the smart device
     device = await TpLinkKasaDevice.connect(device_ip, logger)
 
+    logger.debug("Running command: {}".format(command))
+
     # Perform command action
     if command == "on":
-        logger.debug("Running command: {}".format(command))
         await device.turn_on(children)
+        children = []
     elif command == "off":
-        logger.debug("Running command: {}".format(command))
         await device.turn_off(children)
+        children = []
     elif command == "status":
-        logger.debug("Running command: {}".format(command))
         await device.status(children)
     else:
         logger.critical('Unknown or unsupported command: {}'.format(command))
 
 
-async def turnOffDevice(device, device_name):
-    # Check if device is currently on
-    if device.is_on:
-        # Turn off device
-        logger.info('Turning off device: {}'.format(device_name))
-        await device.turn_off()
-    else:
-        # Device is already off
-        logger.info('Device "{}" is already off'.format(device_name))
-
-
-async def turnOnDevice(device, device_name):
-    # Check if device is on
-    if device.is_on:
-        # Device is already on
-        logger.info('Device "{}" is already on'.format(device_name))
-    else:
-        # Turn on device
-        logger.info('Turning on device: {}'.format(device_name))
-        await device.turn_on()
-
-
-async def toggleDevice(device, device_name):
-    # Check if device is currently on
-    if device.is_on:
-        # Turn off device
-        logger.info('Device: {} | Power State: ON -- Changing state to: OFF'.format(device_name))
-        await turnOffDevice(device, device_name)
-    else:
-        # Turn on device
-        logger.info('Device: {} | Power State: OFF -- Changing state to: ON'.format(device_name))
-        await turnOnDevice(device, device_name)
-
-
-async def getDeviceState(device):
-    # Set a default state of "OFF"
-    device_state = "OFF"
-
-    # Check if device is on
-    if device.is_on:
-        device_state = "ON"
-
-    return device_state
-
-
-async def showDeviceState(device, device_name):
-    # Get device state
-    device_state = await getDeviceState(device)
-
-    logger.info('Device: {} | Power State: {}'.format(device_name, device_state))
-
-
-def printDebug(message, debug_mode):
-    # Print message only if debug mode is enabled
-    if debug_mode:
-        print('|| -- DEBUG -- || {}'.format(message)) if (len(message) > 0) else print('')
-
-
-def configLogger(logNamePrefix, logLevel, logPath):
+def config_logger(log_name_prefix, log_level, log_path):
     # Log path existence / creation
-    Path(logPath).mkdir(parents=True, exist_ok=True)
+    Path(log_path).mkdir(parents=True, exist_ok=True)
 
     # Log filename
-    logFileName = '{}/{}.log'.format(logPath, logNamePrefix)
+    log_file_name = '{}/{}.log'.format(log_path, log_name_prefix)
 
     # Get logger
-    myLogger = logging.getLogger(loggerName)
+    my_logger = logging.getLogger(loggerName)
 
     # Set lowest allowed logger severity
     logger.setLevel(logging.DEBUG)
 
     # Console output handler
-    consoleHandler = logging.StreamHandler()
-    consoleHandler.setLevel(logLevel)
-    consoleHandler.setFormatter(logging.Formatter('%(asctime)s | %(levelname)s: %(message)s'))
-    logger.addHandler(consoleHandler)
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(log_level)
+    console_handler.setFormatter(logging.Formatter('%(asctime)s | %(levelname)s: %(message)s'))
+    logger.addHandler(console_handler)
 
     # Log file output handler
-    fileHandler = logging.FileHandler(logFileName)
-    fileHandler.setLevel(logLevel)
-    fileHandler.encoding = 'utf-8'
-    fileHandler.setFormatter(logging.Formatter('%(asctime)s | %(levelname)s | %(lineno)d: %(message)s'))
-    logger.addHandler(fileHandler)
+    file_handler = logging.FileHandler(log_file_name)
+    file_handler.setLevel(log_level)
+    file_handler.encoding = 'utf-8'
+    file_handler.setFormatter(logging.Formatter('%(asctime)s | %(levelname)s | %(lineno)d: %(message)s'))
+    logger.addHandler(file_handler)
 
     # Return configured logger
-    return myLogger
+    return my_logger
 
 
 # Main function
 async def main():
     # Configure logging
-    logger = configLogger(Path(parser.prog).stem, logLevel, logPath)
+    logger = config_logger(Path(parser.prog).stem, logLevel, logPath)
 
     # Check for valid command
     command = args.command
@@ -415,7 +281,7 @@ async def main():
             # Set a timeout
             async with asyncio.timeout(command_timeout):
                 # Attempt to run the command
-                await runCommand(device_ip, command, children)
+                await run_command(device_ip, command, children)
         except asyncio.TimeoutError as te:
             logger.critical('Error: Command "{}" timed out for device at {} | {}'.format(
                 command,
