@@ -1,14 +1,9 @@
 # Import libraries
-#from xmlrpc.client import Boolean
-from datetime import datetime  # datetime library
-from typing import List
-import kasa.iot
 from kasa.iot import iotdevice
 import asyncio  # async io
 import platform  # platform
 import argparse  # argument parsing
 import re  # regex
-import json  # JSON
 import logging  # Logging
 from pathlib import Path  # Path functions
 
@@ -52,142 +47,102 @@ class TpLinkKasaDeviceException(Exception):
 
 # wrapper class for TP-Link Kasa Smart Device
 class TpLinkKasaDevice:
-    def __init__(self, ip: str, logger: logging.Logger = None):
+    def __init__(self, ip: str, iot_device: iotdevice.Device = None, logger: logging.Logger = None):
         self.ip = ip
-        self.iot_device = None
-        self.type = None
-        self.name = ''
-        self.children = []
+        self.iot_device = iot_device
         self._logger = logger
 
     def __str__(self):
         return 'IP: {} | Name: {} | Device Type: {}'.format(
-                self.ip, self.name, self.type)
+                self.ip, self.iot_device.alias, self.iot_device.device_type)
 
     @staticmethod
     async def connect(ip: str, logger: logging.Logger = None):
+        # Connect to the Kasa device
         iot_device = await iotdevice.Device.connect(host=ip)
 
+        # If the device connection was successful, create an object to wrap it
+        #  and return the wrapper object
         if iot_device:
             kasa_device = TpLinkKasaDevice(ip)
             kasa_device.iot_device = iot_device
-            kasa_device.type = iot_device.device_type
-            kasa_device.name = iot_device.alias
-            kasa_device.children = iot_device.children
             kasa_device._logger = logger
 
             logger.info(kasa_device)
             return kasa_device
         else:
+            # Raise an error if the connection failed
             raise TpLinkKasaDeviceException("Could not connect to Kasa device at '{}".format(ip))
 
-    async def turn_on(self, children=None):
+    async def do_action(self, command: str = 'status', children=None):
+        # Create an empty list for child devices, if no list was provided
         if children is None:
             children = []
+        else:
+            # Sort the child list
+            children.sort()
 
-        self._logger.debug("Getting device: {}".format(self.iot_device))
+        # Get the current device
         current_device = self.iot_device
+        self._logger.debug("Current Device: {}".format(current_device))
 
-        self._logger.debug("Checking device type...")
-        if self.type in (current_device.device_type.Strip, current_device.device_type.StripSocket):
-            if not len(children) > 0:
-                for i in range(len(current_device.children)):
-                    children.append(i)
+        # Start a list of devices to perform the action upon
+        devices_to_action = []
 
-            self._logger.info("Device: {} - Turning on child devices".format(current_device.alias))
-            for child in children:
+        # Check if the current device has children (a "Strip" or "StripSocket")
+        if current_device.device_type in (current_device.device_type.Strip, current_device.device_type.StripSocket):
+            # Check if a list of child devices was provided
+            if len(children) > 0:
+                # Include child devices as specific indexes
+                for child in children:
+                    try:
+                        # Access the child device at the given index
+                        devices_to_action.append(current_device.children[child])
+                    except Exception as e:
+                        self._logger.error("Error accessing child device at index {} - {}".format(child, e))
+            else:
+                # Include all children
+                devices_to_action = current_device.children
+        else:
+            # If the device doesn't have children, target just the current device
+            devices_to_action.append(current_device)
+
+        # Determine the command to run
+        self._logger.info("Command to run: {}".format(command))
+
+        # Loop through the list of devices to action
+        for device in devices_to_action:
+            self._logger.debug("Running '{}' command on Device: {}".format(command, device.alias))
+
+            # Create a string to track device state change
+            state_change_string = ""
+
+            if command == "on":
                 try:
-                    current_child = current_device.children[child]
-
-                    state_change_string = "=> is already ON"
-
-                    if current_child.is_off:
-                        await current_child.turn_on()
-
+                    if device.is_off:
                         state_change_string = "=> changing state to ON"
-
-                    self._logger.info("Device: {} | Child: {} | State: {} {}".format(
-                            self.name, current_child.alias, "ON" if current_child.is_on else "OFF", state_change_string))
+                        await device.turn_on()
+                    else:
+                        state_change_string = "=> is already ON"
                 except Exception as e:
-                    self._logger.error("Error accessing child device: {}".format(e))
-        else:
-            state_change_string = "=> is already ON"
-
-            if current_device.is_off:
-                await current_device.turn_on()
-
-                state_change_string = "=> changing state to ON"
-
-            self._logger.info("Device: {} | State: {} {}".format(
-                    self.name, "ON" if current_device.is_on else "OFF", state_change_string))
-
-    async def turn_off(self, children=None):
-        if children is None:
-            children = []
-
-        self._logger.debug("Getting device: {}".format(self.iot_device))
-        current_device = self.iot_device
-
-        self._logger.debug("Checking device type...")
-        if self.type in (current_device.device_type.Strip, current_device.device_type.StripSocket):
-            if not len(children) > 0:
-                for i in range(len(current_device.children)):
-                    children.append(i)
-
-            self._logger.info("Device: {} - Turning off child devices".format(current_device.alias))
-            for child in children:
+                    self._logger.error("Error performing action on device '{}': {}".format(device.alias, e))
+            elif command == "off":
                 try:
-                    current_child = current_device.children[child]
-
-                    state_change_string = "=> is already OFF"
-
-                    if current_child.is_on:
-                        await current_child.turn_off()
-
-                        state_change_string = "=> changed state to OFF"
-
-                    self._logger.info("Device: {} | Child: {} | State: {} {}".format(
-                        self.name, current_child.alias, "ON" if current_child.is_on else "OFF", state_change_string))
+                    if device.is_on:
+                        state_change_string = "=> changing state to OFF"
+                        await device.turn_off()
+                    else:
+                        state_change_string = "=> is already OFF"
                 except Exception as e:
-                    self._logger.error("Error accessing child device: {}".format(e))
-        else:
-            state_change_string = "=> is already OFF"
+                    self._logger.error("Error performing action on device '{}': {}".format(device.alias, e))
+            elif command == "status":
+                state_change_string = ""
+            else:
+                logger.critical('Unknown or unsupported command: {}'.format(command))
 
-            if current_device.is_on:
-                await current_device.turn_off()
-
-                state_change_string = "=> changed state to OFF"
-
-            self._logger.info("Device: {} | State: {} {}".format(
-                self.name, "ON" if current_device.is_on else "OFF", state_change_string))
-
-    async def status(self, children=None):
-        if children is None:
-            children = []
-
-        self._logger.debug("Getting device: {}".format(self.iot_device))
-        current_device = self.iot_device
-
-        self._logger.debug("Checking device type...")
-        if self.type in (current_device.device_type.Strip, current_device.device_type.StripSocket):
-            if not len(children) > 0:
-                for i in range(len(current_device.children)):
-                    children.append(i)
-
-            self._logger.info("Device: {} - Getting status for child devices".format(current_device.alias))
-            for child in children:
-                try:
-                    current_child = current_device.children[child]
-
-                    self._logger.info("Device: {} | Child: {} | State: {}".format(
-                        self.name, current_child.alias, "OFF" if current_child.is_off else "ON"
-                    ))
-                except Exception as e:
-                    self._logger.error("Error accessing child device at index {}: {}".format(child, e))
-        else:
-            self._logger.info("Device: {} | State: {}".format(
-                self.name, "OFF" if current_device.is_off else "ON"
-            ))
+            self._logger.info("Device: {} | Child: {} | State: {} {}".format(
+                current_device.alias, device.alias, "ON" if device.is_on else "OFF",
+                state_change_string))
 
 
 # Methods
@@ -200,17 +155,8 @@ async def run_command(device_ip, command, children=None):
 
     logger.debug("Running command: {}".format(command))
 
-    # Perform command action
-    if command == "on":
-        await device.turn_on(children)
-        children = []
-    elif command == "off":
-        await device.turn_off(children)
-        children = []
-    elif command == "status":
-        await device.status(children)
-    else:
-        logger.critical('Unknown or unsupported command: {}'.format(command))
+    # Perform command
+    await device.do_action(command=command, children=children)
 
 
 def config_logger(log_name_prefix, log_level, log_path):
