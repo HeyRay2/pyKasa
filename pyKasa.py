@@ -3,7 +3,6 @@ from kasa.iot import iotdevice
 import asyncio  # async io
 import platform  # platform
 import argparse  # argument parsing
-import json
 import re  # regex
 import logging  # Logging
 from pathlib import Path  # Path functions
@@ -22,7 +21,7 @@ command_options = ['on', 'off', 'hw-info', 'status']
 parser = argparse.ArgumentParser(description='Control a TP-Link Kasa Smart Device.')
 parser.add_argument('--ip', help='The IP address of the device', required=True)
 parser.add_argument('--children',
-                    help='Zero-based, comma-separated list of child devices to target (for devices like power strips).'
+                    help='Zero-based, comma-separated list of child devices to target (for devices like power strips). '
                          'Example: 0,1,2',
                     default='all')
 parser.add_argument('--command', help='Command to run', choices=command_options, required=True)
@@ -45,6 +44,7 @@ logger = logging.getLogger(loggerName)
 class TpLinkKasaDeviceException(Exception):
     pass
 
+
 # Class for hardware info for TP-Link Kasa Smart Device
 class TpLinkKasaDeviceHardwareInfo:
     def __init__(self, hw_info):
@@ -59,6 +59,7 @@ class TpLinkKasaDeviceHardwareInfo:
         return "Type: {} | Software Ver: {} | Hardware Ver: {} | MAC Address: {}".format(
             self.type, self.sw_version, self.hw_version, self.mac_address)
 
+
 # Class to wrap a TP-Link Kasa Smart Device
 class TpLinkKasaDevice:
     def __init__(self, ip: str, iot_device: iotdevice.Device = None, logger: logging.Logger = None):
@@ -68,7 +69,7 @@ class TpLinkKasaDevice:
 
     def __str__(self):
         return 'IP: {} | Name: {} | Device Type: {}'.format(
-                self.ip, self.iot_device.alias, self.iot_device.device_type)
+            self.ip, self.iot_device.alias, self.iot_device.device_type)
 
     @staticmethod
     async def connect(ip: str, logger: logging.Logger = None):
@@ -136,6 +137,7 @@ class TpLinkKasaDevice:
                     if device.is_off:
                         state_change_string = "=> changing state to ON"
                         await device.turn_on()
+                        await device.update()
                     else:
                         state_change_string = "=> is already ON"
                 except Exception as e:
@@ -151,13 +153,13 @@ class TpLinkKasaDevice:
                     self._logger.error("Error performing action on device '{}': {}".format(device.alias, e))
             elif command == "hw-info":
                 try:
+                    # Show device and hardware info status just once, and then break out of the loop
                     device_hw_info = TpLinkKasaDeviceHardwareInfo(device.hw_info)
 
                     self._logger.debug("Device Hardware Info: {}".format(device_hw_info))
 
                     state_change_string = "\nHardware Info:\n{}".format(device_hw_info)
 
-                    # Show device and hardware info status just once, and then break out of the loop
                     await self.show_device_state(current_device, None, state_change_string)
                     break
                 except Exception as e:
@@ -176,7 +178,7 @@ class TpLinkKasaDevice:
             child_string = ""
             child_state_string = ""
         else:
-            child_string = "Child:| {} |".format(child.alias)
+            child_string = "| Child: {} |".format(child.alias)
             child_state_string = "State: {} ".format("ON" if child.is_on else "OFF")
 
         self._logger.info("Device: {} {} {} {}".format(
