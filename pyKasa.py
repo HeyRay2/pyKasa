@@ -3,6 +3,7 @@ from kasa.iot import iotdevice
 import asyncio  # async io
 import platform  # platform
 import argparse  # argument parsing
+import json
 import re  # regex
 import logging  # Logging
 from pathlib import Path  # Path functions
@@ -15,7 +16,7 @@ if platform.system() == 'Windows':
 command_timeout_default = 3
 
 # List of valid device command options
-command_options = ['on', 'off', 'status']
+command_options = ['on', 'off', 'hw-info', 'status']
 
 # CMD Line Parser
 parser = argparse.ArgumentParser(description='Control a TP-Link Kasa Smart Device.')
@@ -44,8 +45,21 @@ logger = logging.getLogger(loggerName)
 class TpLinkKasaDeviceException(Exception):
     pass
 
+# Class for hardware info for TP-Link Kasa Smart Device
+class TpLinkKasaDeviceHardwareInfo:
+    def __init__(self, hw_info):
+        self.sw_version = hw_info.get('sw_ver')
+        self.hw_version = hw_info.get('hw_ver')
+        self.mac_address = hw_info.get('mac')
+        self.type = hw_info.get('mic_type')
+        self.hw_id = hw_info.get('hwId')
+        self.oem_id = hw_info.get('oemId')
 
-# wrapper class for TP-Link Kasa Smart Device
+    def __str__(self):
+        return "Type: {} | Software Ver: {} | Hardware Ver: {} | MAC Address: {}".format(
+            self.type, self.sw_version, self.hw_version, self.mac_address)
+
+# Class to wrap a TP-Link Kasa Smart Device
 class TpLinkKasaDevice:
     def __init__(self, ip: str, iot_device: iotdevice.Device = None, logger: logging.Logger = None):
         self.ip = ip
@@ -135,14 +149,42 @@ class TpLinkKasaDevice:
                         state_change_string = "=> is already OFF"
                 except Exception as e:
                     self._logger.error("Error performing action on device '{}': {}".format(device.alias, e))
+            elif command == "hw-info":
+                try:
+                    device_hw_info = TpLinkKasaDeviceHardwareInfo(device.hw_info)
+
+                    self._logger.debug("Device Hardware Info: {}".format(device_hw_info))
+
+                    state_change_string = "\nHardware Info:\n{}".format(device_hw_info)
+
+                    # Show device and hardware info status just once, and then break out of the loop
+                    await self.show_device_state(current_device, None, state_change_string)
+                    break
+                except Exception as e:
+                    self._logger.error("Error performing action on device '{}': {}".format(device.alias, e))
             elif command == "status":
                 state_change_string = ""
             else:
                 logger.critical('Unknown or unsupported command: {}'.format(command))
 
-            self._logger.info("Device: {} | Child: {} | State: {} {}".format(
-                current_device.alias, device.alias, "ON" if device.is_on else "OFF",
-                state_change_string))
+            # Show status for current device
+            await self.show_device_state(current_device, device, state_change_string)
+
+    async def show_device_state(self, current_device: iotdevice.Device, child: iotdevice.Device = None,
+                                state_change_string: str = ""):
+        if child is None:
+            child_string = ""
+            child_state_string = ""
+        else:
+            child_string = "Child:| {} |".format(child.alias)
+            child_state_string = "State: {} ".format("ON" if child.is_on else "OFF")
+
+        # self._logger.info("Device: {} | {} State: {} {}".format(
+        #     current_device.alias, child_string, "ON" if child.is_on else "OFF",
+        #     state_change_string))
+
+        self._logger.info("Device: {} {} {} {}".format(
+            current_device.alias, child_string, child_state_string, state_change_string))
 
 
 # Methods
@@ -233,7 +275,6 @@ async def main():
                 command,
                 device_ip,
                 te))
-            # raise Exception('Command "{}" timed out for device at {}'.format(command, device_ip))
         except Exception as e:
             logger.critical('Error: {}'.format(e))
     else:
