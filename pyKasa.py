@@ -179,10 +179,6 @@ class TpLinkKasaDevice:
             child_string = "Child:| {} |".format(child.alias)
             child_state_string = "State: {} ".format("ON" if child.is_on else "OFF")
 
-        # self._logger.info("Device: {} | {} State: {} {}".format(
-        #     current_device.alias, child_string, "ON" if child.is_on else "OFF",
-        #     state_change_string))
-
         self._logger.info("Device: {} {} {} {}".format(
             current_device.alias, child_string, child_state_string, state_change_string))
 
