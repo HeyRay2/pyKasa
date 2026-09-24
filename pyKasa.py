@@ -8,8 +8,10 @@ import logging  # Logging
 from pathlib import Path  # Path functions
 
 # Set platform policy
-if platform.system() == 'Windows':
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+# asyncio.set_event_loop_policy() was deprecated in Python 3.16
+#  see https://docs.python.org/3/deprecations/pending-removal-in-3.16.html
+#if platform.system() == 'Windows':
+#    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 # Set a default command response timeout (in seconds)
 command_timeout_default = 3
@@ -282,6 +284,10 @@ async def main():
 
 # Initiate main
 if __name__ == "__main__":
-    asyncio.run(main())
+    # asyncio.set_event_loop_policy() was deprecated in Python 3.16
+    #  and was replaced with a "loop_factory" argument in asyncio.run()
+    #  see https://docs.python.org/3/deprecations/pending-removal-in-3.16.html
+    # asyncio.run(main())
+    asyncio.run(main(), loop_factory=asyncio.SelectorEventLoop)
 else:
     help()
